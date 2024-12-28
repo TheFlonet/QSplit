@@ -13,13 +13,12 @@ For this comparison, we explicitly disregard the purely quantum solver [DWaveSam
 - The number of currently available qubits does not allow to deal with arbitrarily large problems
 - For small problems, QSplit solves directly via QPU
 
-Translated with DeepL.com (free version)
-
 ## About the dataset
 
 The problems discussed are a subset of the [QPlib dataset](https://qplib.zib.de/doc.html).
 
 In particular, we dealt the problems with:
 
-- **O** equal to *Q* and,
-- **V** equal to *B*.
+- **O** equal to *Q*,
+- **V** equal to *B* and,
+- no slack variables.
