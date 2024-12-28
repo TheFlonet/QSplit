@@ -1,36 +1,42 @@
-from typing import Mapping, Hashable, List, Tuple
+from typing import List, Tuple
 import numpy as np
 import pandas as pd
 from scipy.linalg import lu
-from numpy import floating, integer
+from util import QUBO_DICT
 
 
 class QUBO:
-    def __init__(self, qubo_dict: Mapping[tuple[Hashable, Hashable], float | floating | integer],
-                 cols_idx: List[int], rows_idx: List[int]):
-        self.qubo_dict: Mapping[tuple[Hashable, Hashable], float | floating | integer] = qubo_dict
-        self.cols_idx: List[int] = cols_idx
-        self.rows_idx: List[int] = rows_idx
+    def __init__(self, qubo_dict: QUBO_DICT, cols_idx: List[int] | None = None, 
+                 rows_idx: List[int] | None = None, to_transform: bool = True):
+        self.qubo_dict: QUBO_DICT = qubo_dict
+        if cols_idx is None and rows_idx is None:
+            raise ValueError("QUBO class requires at least one of cols_idx or rows_idx to be not None")
+        self.cols_idx: List[int] = cols_idx if cols_idx is not None else rows_idx
+        self.rows_idx: List[int] = rows_idx if rows_idx is not None else cols_idx
         self.solutions: pd.DataFrame | None = None
         self.qubo_matrix: np.ndarray | None = None
-        self.__from_dict_to_matrix((len(rows_idx), len(cols_idx)))
+        self.__to_transform: bool = to_transform
+        self.__from_dict_to_matrix((len(self.rows_idx), len(self.cols_idx)))
 
     def __is_upper_triangular(self) -> bool:
-        rows, cols = self.qubo_matrix.shape
-        if rows != cols:
+        if self.qubo_matrix is None:
             return False
-        for i in range(rows):
-            for j in range(i):
-                if self.qubo_matrix[i, j] != 0:
-                    return False
+
+        if not np.allclose(self.qubo_matrix, np.triu(self.qubo_matrix)):
+            return False
+
         return True
 
     def __from_dict_to_matrix(self, dims: Tuple[int, int]) -> None:
         self.qubo_matrix = np.zeros(dims)
         for k, v in self.qubo_dict.items():
-            self.qubo_matrix[(k[0] - 1) % dims[0], (k[1] - 1) % dims[1]] = v
-        if not self.__is_upper_triangular():
-            self.qubo_matrix = lu(self.qubo_matrix, permute_l=True)[1]
+            self.qubo_matrix[k[0] % dims[0], k[1] % dims[1]] = v
+        if not self.__to_transform:
+            return 
+        if self.__is_upper_triangular():
+            return
+        
+        self.qubo_matrix = lu(self.qubo_matrix, permute_l=True)[1]
         self.__from_matrix_to_dict()
 
     def __from_matrix_to_dict(self) -> None:
