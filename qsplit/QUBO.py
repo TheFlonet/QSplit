@@ -10,7 +10,7 @@ class QUBO:
                  rows_idx: List[int] | None = None, to_transform: bool = True):
         self.qubo_dict: QUBO_DICT = qubo_dict
         if cols_idx is None and rows_idx is None:
-            raise ValueError("QUBO class requires at least one of cols_idx or rows_idx to be not None")
+            raise ValueError('QUBO class requires at least one of cols_idx or rows_idx to be not None')
         self.cols_idx: List[int] = cols_idx if cols_idx is not None else rows_idx
         self.rows_idx: List[int] = rows_idx if rows_idx is not None else cols_idx
         self.solutions: pd.DataFrame | None = None

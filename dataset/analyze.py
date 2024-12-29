@@ -17,11 +17,11 @@ def main():
                 ids.add(i)
                 ids.add(j)
             if original_var_num != len(ids):
-                print("Problema variabili con", p_path)
+                print('Problem with variables: ', p_path)
                 num += 1
         except Exception as e:
             num += 1
-            print("Errore con", p_path, e)
+            print('Error with', p_path, e)
         if num == prev:
             shutil.copy2(p_path, '../')
 

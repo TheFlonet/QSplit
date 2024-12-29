@@ -9,7 +9,7 @@ def main():
 
     with open('problems.csv', mode='w', newline='') as file:
         writer = csv.writer(file)
-        writer.writerow(["problem name", "#variables"])
+        writer.writerow(['problem name', '#variables'])
         writer.writerows(problems)
 
 
