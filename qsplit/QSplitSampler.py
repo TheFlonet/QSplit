@@ -1,12 +1,11 @@
 import logging
 from collections import defaultdict
 from typing import Tuple, List, Any
-import dwave.samplers
-import dwave.system
+from dwave.samplers import SimulatedAnnealingSampler
+from dwave.system import EmbeddingComposite, DWaveSampler
 import numpy as np
 import pandas as pd
 from qsplit.QUBO import QUBO
-from concurrent.futures import ThreadPoolExecutor, as_completed
 
 log = logging.getLogger('subqubo')
 
@@ -16,8 +15,8 @@ class QSplit:
         self.sampler = sampler
         self.cut_dim = cut_dim
 
-    def run(self, qubo: QUBO, dim: int) -> Tuple[QUBO, float]:
-        if dim <= self.cut_dim:
+    def run(self, qubo: QUBO) -> Tuple[QUBO, float]:
+        if qubo.problem_size <= self.cut_dim:
             if len(qubo.qubo_dict) == 0:
                 all_indices = sorted(list(set(qubo.rows_idx).union(qubo.cols_idx)))
                 data = [[np.nan for _ in range(len(all_indices) + 1)]]
@@ -25,28 +24,23 @@ class QSplit:
                 q_time = 0
             else:
                 if self.sampler == 'sa':
-                    sampleset = dwave.samplers.SimulatedAnnealingSampler().sample_qubo(qubo.qubo_dict, num_reads=10)
+                    sampleset = SimulatedAnnealingSampler().sample_qubo(qubo.qubo_dict, num_reads=10)
+                    q_time = 0
                 elif self.sampler == 'qpu':
-                    sampleset = dwave.system.EmbeddingComposite(dwave.system.DWaveSampler()).sample_qubo(qubo.qubo_dict, num_reads=10)
+                    sampleset = EmbeddingComposite(DWaveSampler()).sample_qubo(qubo.qubo_dict, num_reads=10)
+                    q_time = sampleset.info['timing']['qpu_access_time'] / 1e6
                 res = (sampleset.to_pandas_dataframe().drop(columns=['num_occurrences']).drop_duplicates()
                        .sort_values(by='energy', ascending=True))
-                q_time = 0 # sampleset.info['timing']['qpu_access_time'] / 1e6
                 qubo.solutions = res[res['energy'] == min(res['energy'])]
             return qubo, q_time
 
-        sub_problems = self.__split_problem(qubo, dim)
+        sub_problems = self.__split_problem(qubo)
         solutions, q_times = [], []
 
-        with ThreadPoolExecutor() as executor:
-            future_to_problem = {executor.submit(self.run, p, dim // 2): p for p in sub_problems}
-            
-            for future in as_completed(future_to_problem):
-                try:
-                    s, qpu_t = future.result()
-                    solutions.append(s)
-                    q_times.append(qpu_t)
-                except Exception as e:
-                    print(f"Errore nel task per il problema {future_to_problem[future]}: {e}")
+        for s in sub_problems:
+            s, qpu_t = self.run(s)
+            solutions.append(s)
+            q_times.append(qpu_t)
 
         return self.__aggregate_solutions(solutions, q_times, qubo)
 
@@ -64,10 +58,10 @@ class QSplit:
                                    columns=starting_sols.columns)
 
         # Conflicts resolution
-        qubo.solutions = (self.__local_search(combined_df, qubo).reset_index(drop=True)
-                          .drop_duplicates().nsmallest(n=10, columns='energy'))
+        qubo.solutions, local_q_time = self.__local_search(combined_df, qubo)
+        qubo.solutions = qubo.solutions.reset_index(drop=True).drop_duplicates().nsmallest(n=10, columns='energy')
 
-        return qubo, sum(q_times)
+        return qubo, sum(q_times) + local_q_time
 
     @staticmethod
     def __combine_rows(row1: pd.Series, row2: pd.Series) -> List[float | Any]:
@@ -96,9 +90,9 @@ class QSplit:
 
     def __get_closest_assignments(self, starting_sols: pd.DataFrame, ur_qubo_filled: pd.DataFrame) -> pd.DataFrame:
         closest_rows = []
-        for i, row in starting_sols.iterrows():
+        for _, row in starting_sols.iterrows():
             distances = []
-            for j, sol_row in ur_qubo_filled.iterrows():
+            for _, sol_row in ur_qubo_filled.iterrows():
                 distance = self.__nan_hamming_distance(row.values, sol_row.values)
                 distances.append(distance)
             closest_idx = np.argmin(distances)
@@ -115,7 +109,8 @@ class QSplit:
             return np.inf
         return np.sum(a[mask] != b[mask]) / np.sum(mask)
 
-    def __local_search(self, df: pd.DataFrame, qubo: QUBO) -> pd.DataFrame:
+    def __local_search(self, df: pd.DataFrame, qubo: QUBO) -> Tuple[pd.DataFrame, float]:
+        q_time = 0
         for i, row in df.iterrows():
             no_energy = row.drop('energy')
 
@@ -128,14 +123,15 @@ class QSplit:
                     for col_idx in nans.index:
                         qubo_nans[(row_idx, col_idx)] = qubo.qubo_dict.get((row_idx, col_idx), 0)
                 if self.sampler == 'sa':
-                    nans_sol = dwave.samplers.SimulatedAnnealingSampler().sample_qubo(qubo_nans, num_reads=10)
+                    nans_sol = SimulatedAnnealingSampler().sample_qubo(qubo_nans, num_reads=10)
                 elif self.sampler == 'qpu':
-                    nans_sol = dwave.system.EmbeddingComposite(dwave.system.DWaveSampler()).sample_qubo(qubo_nans, num_reads=10)
+                    nans_sol = EmbeddingComposite(DWaveSampler()).sample_qubo(qubo_nans, num_reads=10)
+                    q_time += nans_sol.info['timing']['qpu_access_time'] / 1e6
                 nans_sol = nans_sol.to_pandas_dataframe().sort_values(by='energy', ascending=True).iloc[0]
                 df.loc[i, nans.index] = nans_sol.drop('energy')
                 df.loc[i, 'energy'] += nans_sol['energy']
 
-        return df
+        return df, q_time
 
     @staticmethod
     def __fill_with_nan(schema: pd.Index, df_to_fill: pd.DataFrame) -> pd.DataFrame:
@@ -156,7 +152,7 @@ class QSplit:
         return self.__fill_with_nan(pd.Index(all_indices + ['energy']), merge)
 
     @staticmethod
-    def __split_problem(qubo: QUBO, dim: int) -> Tuple[QUBO, QUBO, QUBO]:
+    def __split_problem(qubo: QUBO) -> Tuple[QUBO, QUBO, QUBO]:
         """
             Returns 3 sub-problems in qubo form.
             The 3 sub-problems correspond to the matrices obtained by dividing the qubo matrix of the original problem
@@ -172,10 +168,10 @@ class QSplit:
         split_u_l = defaultdict(int)
         split_u_r = defaultdict(int)
         split_l_r = defaultdict(int)
-        split_idx = dim // 2
+        split_idx = qubo.problem_size // 2
 
         for k, v in qubo.qubo_dict.items():
-            row, col = k[0] - 1, k[1] - 1
+            row, col = k[0], k[1]
             if row < split_idx and col < split_idx:
                 split_u_l[k] = v
             elif row < split_idx <= col:
@@ -186,8 +182,8 @@ class QSplit:
                 raise ValueError(
                     'All values in the lower left matrix should be 0, so not present in the qubo dictionary')
 
-        res = (QUBO(split_u_l, cols_idx=qubo.cols_idx[:split_idx], rows_idx=qubo.rows_idx[:split_idx]),
+        res = (QUBO(split_u_l, cols_idx=qubo.cols_idx[:split_idx], rows_idx=qubo.rows_idx[:split_idx], to_transform=False),
                QUBO(split_u_r, cols_idx=qubo.cols_idx[split_idx:], rows_idx=qubo.rows_idx[:split_idx]),
-               QUBO(split_l_r, cols_idx=qubo.cols_idx[split_idx:], rows_idx=qubo.rows_idx[split_idx:]))
+               QUBO(split_l_r, cols_idx=qubo.cols_idx[split_idx:], rows_idx=qubo.rows_idx[split_idx:], to_transform=False))
 
         return res
