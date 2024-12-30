@@ -57,12 +57,10 @@ class QSplit:
         ur_qubo_filled = self.__fill_with_nan(starting_sols.columns, solutions[1].solutions)
         # Search the closest assignments between upper-right qubo and merged solution (UL and LR qubos)
         closest_df = self.__get_closest_assignments(starting_sols, ur_qubo_filled)
-
         # Combine
         combined_df = pd.DataFrame([self.__combine_rows(row1, row2) for (_, row1), (_, row2) in
                                     zip(starting_sols.iterrows(), closest_df.iterrows())],
                                    columns=starting_sols.columns)
-
         # Conflicts resolution
         qubo.solutions, local_q_time = self.__local_search(combined_df, qubo)
         qubo.solutions = qubo.solutions.reset_index(drop=True).drop_duplicates().nsmallest(n=10, columns='energy')
@@ -134,6 +132,8 @@ class QSplit:
                     nans_sol = EmbeddingComposite(DWaveSampler()).sample_qubo(qubo_nans, num_reads=10, offset=qubo.offset)
                     q_time += nans_sol.info['timing']['qpu_access_time'] / 1e6
                 nans_sol = nans_sol.to_pandas_dataframe().sort_values(by='energy', ascending=True).iloc[0]
+                if np.isnan(df.loc[i, 'energy']):
+                    df.loc[i, 'energy'] = 0
                 df.loc[i, nans.index] = nans_sol.drop('energy')
                 df.loc[i, 'energy'] += nans_sol['energy']
 
