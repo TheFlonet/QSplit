@@ -1,4 +1,3 @@
-from concurrent.futures import ThreadPoolExecutor
 import logging
 from collections import defaultdict
 from typing import Tuple, List, Any
@@ -17,7 +16,7 @@ class QSplit:
         self.sampler = sampler
         self.cut_dim = cut_dim
 
-    def sample_qubo(self, qubo: QUBO) -> Tuple[QUBO, float]:
+    async def async_sample_qubo(self, qubo: QUBO) -> Tuple[QUBO, float]:
         if qubo.problem_size <= self.cut_dim or np.count_nonzero(qubo.qubo_matrix) <= self.cut_dim*(self.cut_dim+1)/2:
             if len(qubo.qubo_dict) == 0:
                 all_indices = sorted(list(set(qubo.rows_idx).union(qubo.cols_idx)))
@@ -39,20 +38,17 @@ class QSplit:
         sub_problems = self.__split_problem(qubo)
         solutions, total_q_time = [], 0
 
-        for s in sub_problems:
-            s, qpu_t = self.sample_qubo(s)
-            solutions.append(s)
-            total_q_time += qpu_t
+        results = await asyncio.gather(*[self.async_sample_qubo(s) for s in sub_problems])
 
-        with ThreadPoolExecutor() as executor:
-            futures = [executor.submit(self.sample_qubo, s) for s in sub_problems]
-
-            for future in futures:
-                solution, qpu_time = future.result()
-                solutions.append(solution)
-                total_q_time += qpu_time
+        solutions = []
+        for solution, qpu_time in results:
+            solutions.append(solution)
+            total_q_time += qpu_time
 
         return self.__aggregate_solutions(solutions, total_q_time, qubo)
+
+    def sample_qubo(self, qubo: QUBO) -> Tuple[QUBO, float]:
+        return asyncio.run(self.async_sample_qubo(qubo))
 
     def __aggregate_solutions(self, solutions: List[QUBO], prev_q_time: float, qubo: QUBO) -> Tuple[QUBO, float]:
         # Aggregate upper-left qubo with lower-right
