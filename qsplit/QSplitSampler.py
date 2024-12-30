@@ -1,3 +1,4 @@
+from concurrent.futures import ThreadPoolExecutor
 import logging
 from collections import defaultdict
 from typing import Tuple, List, Any
@@ -6,8 +7,9 @@ from dwave.system import EmbeddingComposite, DWaveSampler
 import numpy as np
 import pandas as pd
 from qsplit.QUBO import QUBO
+import asyncio
 
-log = logging.getLogger('subqubo')
+log = logging.getLogger('qsplit')
 
 
 class QSplit:
@@ -15,8 +17,8 @@ class QSplit:
         self.sampler = sampler
         self.cut_dim = cut_dim
 
-    def run(self, qubo: QUBO) -> Tuple[QUBO, float]:
-        if qubo.problem_size <= self.cut_dim:
+    def sample_qubo(self, qubo: QUBO) -> Tuple[QUBO, float]:
+        if qubo.problem_size <= self.cut_dim or np.count_nonzero(qubo.qubo_matrix) <= self.cut_dim*(self.cut_dim+1)/2:
             if len(qubo.qubo_dict) == 0:
                 all_indices = sorted(list(set(qubo.rows_idx).union(qubo.cols_idx)))
                 data = [[np.nan for _ in range(len(all_indices) + 1)]]
@@ -24,10 +26,10 @@ class QSplit:
                 q_time = 0
             else:
                 if self.sampler == 'sa':
-                    sampleset = SimulatedAnnealingSampler().sample_qubo(qubo.qubo_dict, num_reads=10)
+                    sampleset = SimulatedAnnealingSampler().sample_qubo(qubo.qubo_dict, num_reads=10, offset=qubo.offset)
                     q_time = 0
                 elif self.sampler == 'qpu':
-                    sampleset = EmbeddingComposite(DWaveSampler()).sample_qubo(qubo.qubo_dict, num_reads=10)
+                    sampleset = EmbeddingComposite(DWaveSampler()).sample_qubo(qubo.qubo_dict, num_reads=10, offset=qubo.offset)
                     q_time = sampleset.info['timing']['qpu_access_time'] / 1e6
                 res = (sampleset.to_pandas_dataframe().drop(columns=['num_occurrences']).drop_duplicates()
                        .sort_values(by='energy', ascending=True))
@@ -35,16 +37,24 @@ class QSplit:
             return qubo, q_time
 
         sub_problems = self.__split_problem(qubo)
-        solutions, q_times = [], []
+        solutions, total_q_time = [], 0
 
         for s in sub_problems:
-            s, qpu_t = self.run(s)
+            s, qpu_t = self.sample_qubo(s)
             solutions.append(s)
-            q_times.append(qpu_t)
+            total_q_time += qpu_t
 
-        return self.__aggregate_solutions(solutions, q_times, qubo)
+        with ThreadPoolExecutor() as executor:
+            futures = [executor.submit(self.sample_qubo, s) for s in sub_problems]
 
-    def __aggregate_solutions(self, solutions: List[QUBO], q_times: List[float], qubo: QUBO) -> Tuple[QUBO, float]:
+            for future in futures:
+                solution, qpu_time = future.result()
+                solutions.append(solution)
+                total_q_time += qpu_time
+
+        return self.__aggregate_solutions(solutions, total_q_time, qubo)
+
+    def __aggregate_solutions(self, solutions: List[QUBO], prev_q_time: float, qubo: QUBO) -> Tuple[QUBO, float]:
         # Aggregate upper-left qubo with lower-right
         starting_sols = self.__combine_ul_lr(solutions[0], solutions[2])
         # Set missing columns in upper-right qubo to NaN
@@ -61,7 +71,7 @@ class QSplit:
         qubo.solutions, local_q_time = self.__local_search(combined_df, qubo)
         qubo.solutions = qubo.solutions.reset_index(drop=True).drop_duplicates().nsmallest(n=10, columns='energy')
 
-        return qubo, sum(q_times) + local_q_time
+        return qubo, prev_q_time + local_q_time
 
     @staticmethod
     def __combine_rows(row1: pd.Series, row2: pd.Series) -> List[float | Any]:
@@ -123,9 +133,9 @@ class QSplit:
                     for col_idx in nans.index:
                         qubo_nans[(row_idx, col_idx)] = qubo.qubo_dict.get((row_idx, col_idx), 0)
                 if self.sampler == 'sa':
-                    nans_sol = SimulatedAnnealingSampler().sample_qubo(qubo_nans, num_reads=10)
+                    nans_sol = SimulatedAnnealingSampler().sample_qubo(qubo_nans, num_reads=10, offset=qubo.offset)
                 elif self.sampler == 'qpu':
-                    nans_sol = EmbeddingComposite(DWaveSampler()).sample_qubo(qubo_nans, num_reads=10)
+                    nans_sol = EmbeddingComposite(DWaveSampler()).sample_qubo(qubo_nans, num_reads=10, offset=qubo.offset)
                     q_time += nans_sol.info['timing']['qpu_access_time'] / 1e6
                 nans_sol = nans_sol.to_pandas_dataframe().sort_values(by='energy', ascending=True).iloc[0]
                 df.loc[i, nans.index] = nans_sol.drop('energy')

@@ -6,9 +6,10 @@ from util import QUBO_DICT
 
 
 class QUBO:
-    def __init__(self, qubo_dict: QUBO_DICT, cols_idx: List[int] | None = None, 
+    def __init__(self, qubo_dict: QUBO_DICT, offset: float = 0, cols_idx: List[int] | None = None, 
                  rows_idx: List[int] | None = None, to_transform: bool = True):
         self.qubo_dict: QUBO_DICT = qubo_dict
+        self.offset: float = offset
 
         if cols_idx is None and rows_idx is None:
             raise ValueError('QUBO class requires at least one of cols_idx or rows_idx to be not None')
