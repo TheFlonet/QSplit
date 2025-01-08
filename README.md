@@ -22,3 +22,12 @@ In particular, we dealt the problems with:
 - **O** equal to *Q*,
 - **V** equal to *B* and,
 - no slack variables.
+
+## C++ Library used
+
+- [XTensor](https://github.com/xtensor-stack/xtensor) - included in the project (with XTL and XSIMD)
+- [DataFrame](https://github.com/hosseinmoein/DataFrame/tree/master) - included in the project
+- [Minorminer](https://github.com/dwavesystems/minorminer/tree/main) - included in the project
+- [CPP-Base64](https://github.com/ReneNyffenegger/cpp-base64/tree/master) - included in the project
+- [nlohmann JSON](https://github.com/nlohmann/json) - included in the project
+- [LibCURL](https://curl.se/libcurl/) - dinamically linked
