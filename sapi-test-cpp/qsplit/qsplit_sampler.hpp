@@ -3,6 +3,7 @@
 
 #include <array>
 #include <vector>
+#include <cmath>
 #include <xtensor/xview.hpp>
 #include <xtensor/xindex_view.hpp> 
 #include "qubo.hpp"
@@ -76,16 +77,84 @@ private:
         };
     }
 
-    qubo::sol_df_t combine_ul_lr(const qubo::QUBOProblem& ul, const qubo::QUBOProblem& lr) {
-        throw std::logic_error("Not implemented yet");
-    }
-
     qubo::sol_df_t fill_with_error(const std::vector<int>& columns, const qubo::sol_df_t& ur_sol) {
-        throw std::logic_error("Not implemented yet");
+        qubo::sol_df_t res;
+        for (qubo::solved_assignment s : ur_sol) {
+            qubo::solved_assignment tmp;
+            tmp.second = s.second;
+            for (size_t i : columns) {
+                if (s.first.count(i) == 1) {
+                    tmp.first[i] = s.first.at(i);
+                } else {
+                    tmp.first[i] = qubo::QubitState::Error;
+                }
+            }
+            res.push_back(tmp);
+        }
+        return res;
     } 
+
+    qubo::sol_df_t combine_ul_lr(const qubo::QUBOProblem& ul, const qubo::QUBOProblem& lr) {
+        std::vector<int> all_index(ul.get_rows_idx().begin(), ul.get_rows_idx().end());
+        all_index.insert(all_index.end(), lr.get_cols_idx().begin(), lr.get_cols_idx().end());
+        
+        qubo::sol_df_t res;
+        for (size_t i = 0; i < ul.get_solution_df().size(); ++i) {
+            qubo::solved_assignment tmp;
+
+            for (auto const& [key, val] : ul.get_solution_df()[i].first) { tmp.first[key] = val; }
+            for (auto const& [key, val] : lr.get_solution_df()[i].first) { tmp.first[key] = val; }
+            tmp.second = ul.get_solution_df()[i].second + lr.get_solution_df()[i].second;
+            res.push_back(tmp);
+        }
+
+        return fill_with_error(all_index, res);
+    }
 
     qubo::sol_df_t get_closest_assignments(const qubo::sol_df_t& starting_sols, const qubo::sol_df_t& or_sol_filled) {
         throw std::logic_error("Not implemented yet");
+    }
+
+    qubo::sol_df_t combine_dataframe(const qubo::sol_df_t& starting_sols, const qubo::sol_df_t& ur_sol_filled) {
+        qubo::sol_df_t res;
+        const qubo::QubitState err = qubo::QubitState::Error;
+        for (size_t i = 0; i < starting_sols.size(); ++i) {
+            qubo::solved_assignment row;
+
+            const qubo::solved_assignment start_assign = starting_sols[i];
+            const qubo::solved_assignment ur_assign = ur_sol_filled[i];
+
+            bool contain_error = false;
+            for (auto const& [key, s_val] : start_assign.first) {
+                qubo::QubitState ur_val = ur_assign.first.count(key) == 1 ? ur_assign.first.at(key) : err;
+                if (ur_val == err && s_val != err) {
+                    row.first[key] = s_val;
+                } else if (s_val == err && ur_val != err) {
+                    row.first[key] = ur_val;
+                } else if (s_val == ur_val) {
+                    row.first[key] = s_val;
+                    if (s_val == err) contain_error = true;
+                } else {
+                    row.first[key] = err;
+                    contain_error = true;
+                }
+            }
+
+            if (contain_error || (isnan(start_assign.second) && isnan(ur_assign.second))) {
+                row.second = nan("Invalid energy");
+            } else if (isnan(start_assign.second)) {
+                row.second = ur_assign.second;
+            } else if (isnan(ur_assign.second)) {
+                row.second = start_assign.second;
+            } else {
+                row.second = start_assign.second + ur_assign.second;
+            }
+
+
+            res.push_back(row);
+        }
+
+        return res;
     }
 
     double local_search(const qubo::sol_df_t& combined_df, qubo::QUBOProblem& qubo) {
@@ -100,8 +169,7 @@ private:
         // Search the closest assignments between upper-right qubo and merged solution (UL and LR qubos)
         qubo::sol_df_t closest_df = get_closest_assignments(starting_sols, ur_sol_filled);
         // Combine
-        // TODO combine starting_sols and closest_df
-        qubo::sol_df_t combined_df;
+        qubo::sol_df_t combined_df = combine_dataframe(starting_sols, closest_df);
         // Conflicts resolution
         q_time += local_search(combined_df, qubo);
     }

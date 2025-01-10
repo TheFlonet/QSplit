@@ -4,8 +4,9 @@
 #define XTENSOR_USE_XSIMD
 #include <xtensor/xarray.hpp>
 #include <xtensor/xview.hpp>
-#include <xframe/xvariable.hpp>
 #include <cstdint>
+#include <vector>
+#include <map>
 #include "la_util.hpp"
 
 namespace qubo {
@@ -16,7 +17,9 @@ namespace qubo {
         Error = 2
     };
 
-    using sol_df_t = xf::xvariable<std::vector<QubitState>, double>;
+    using assignment = std::map<size_t, QubitState>;
+    using solved_assignment = std::pair<assignment, double>;
+    using sol_df_t = std::vector<solved_assignment>;
 
 class QUBOProblem {
 private:
