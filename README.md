@@ -26,7 +26,6 @@ In particular, we dealt the problems with:
 ## C++ Library used
 
 - [XTensor](https://github.com/xtensor-stack/xtensor) - included in the project (with XTL and XSIMD)
-- [XFrame](https://github.com/xtensor-stack/xframe) - included in the project
 - [Minorminer](https://github.com/dwavesystems/minorminer/tree/main) - included in the project
 - [CPP-Base64](https://github.com/ReneNyffenegger/cpp-base64/tree/master) - included in the project
 - [nlohmann JSON](https://github.com/nlohmann/json) - included in the project
