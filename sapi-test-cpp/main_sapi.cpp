@@ -1,6 +1,5 @@
 #include <iostream>
 #include <fstream>
-#include <sstream>
 #include <cstdlib>
 #include <string>
 #include "dwave/dwave.hpp"
@@ -9,7 +8,7 @@
 template <typename S>
 std::ostream& operator<<(std::ostream& os, const std::vector<S>& vector) {
     os << "{ ";
-    for (auto i : vector) 
+    for (const auto& i : vector)
         os << i << " ";
     os << "}";
     return os;
@@ -44,13 +43,13 @@ class MyCppInteractions : public find_embedding::LocalInteraction {
   private:
     void displayOutputImpl(int, const std::string& mess) const override { std::cout << mess << std::endl; }
     void displayErrorImpl(int, const std::string& mess) const override { std::cerr << mess << std::endl; }
-    bool cancelledImpl() const override { return _canceled; }
+    [[nodiscard]] bool cancelledImpl() const override { return _canceled; }
 };
 
 void load_env_file(const std::string& filename) {
     std::ifstream file(filename);
     if (!file.is_open()) {
-        throw new std::runtime_error("Error: unable to load .env file");
+        throw std::runtime_error("Error: unable to load .env file");
     }
 
     std::string line;
@@ -78,10 +77,10 @@ int main() {
 
     if (!curl) {
         curl_global_cleanup();
-        throw new std::runtime_error("Error during curl initialization");
+        throw std::runtime_error("Error during curl initialization");
     }
 
-    struct curl_slist* headers = nullptr;
+    curl_slist* headers = nullptr;
     headers = curl_slist_append(headers, ("X-Auth-Token: " + DWAVE_API_TOKEN).c_str());
     headers = curl_slist_append(headers, "Content-Type: application/json");
     curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
@@ -96,11 +95,11 @@ int main() {
     graph::input_graph qpu_graph(qpu_solver.properties.num_qubits, aside, bside);
     graph::input_graph input(3, {0, 1, 2}, {1, 2, 0});
     find_embedding::optional_parameters params;
-    params.localInteractionPtr.reset(new MyCppInteractions());
+    params.localInteractionPtr = std::make_shared<MyCppInteractions>();
     std::vector<std::vector<int>> chains;
     
-    if (!find_embedding::findEmbedding(input, qpu_graph, params, chains)) {
-        std::cerr << "Error: unable to find the emebdding" << std::endl;
+    if (!findEmbedding(input, qpu_graph, params, chains)) {
+        std::cerr << "Error: unable to find the embedding" << std::endl;
         return -1;
     }
 

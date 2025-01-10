@@ -1,5 +1,5 @@
 CXX = g++
-CXXFLAGS = -std=c++20 -Wall -Wpedantic -Werror # -Wextra
+CXXFLAGS = -std=c++20 -Wall -Wpedantic -Werror# -Wextra
 LIB_PATH = -I./qsplit/external -I./dwave/external
 
 EXE_SAPI = build/sapi

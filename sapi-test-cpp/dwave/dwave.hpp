@@ -1,7 +1,6 @@
 #ifndef DWAVE
 #define DWAVE
 
-#include <iostream>
 #include <string>
 #include <vector>
 #include <curl/curl.h>
@@ -27,12 +26,12 @@ namespace dwave {
         std::string id;
         std::string status;
         struct Properties {
-            int num_qubits;
+            int num_qubits{};
             std::vector<int> qubits;
             std::vector<std::vector<int>> couplers;
             std::string category;
         } properties;
-        double avg_load;
+        double avg_load{};
     };
 
     struct ProblemRequest {
@@ -61,10 +60,10 @@ namespace dwave {
     struct ProblemAnswer {
         struct Answer {
             std::vector<bool> solutions; // TODO check, this type may be std::vector<std::vector<bool>>
-            double energies; // TODO check, this type may be std::vector<double>
+            double energies{}; // TODO check, this type may be std::vector<double>
             struct QPUTiming {
                 double qpu_access_time;
-            } timing;
+            } timing{};
             std::string format;
         } answer;
     };
@@ -73,18 +72,18 @@ namespace dwave {
     * UTILITY METHODS                                 *
     **************************************************/
 
-    size_t write_callback(void* contents, size_t size, size_t nmemb, void* userp) {
-        ((std::string*)userp)->append((char*)contents, size * nmemb);
+    inline size_t write_callback(void* contents, size_t size, size_t nmemb, void* userp) {
+        static_cast<std::string *>(userp)->append(static_cast<char *>(contents), size * nmemb);
         return size * nmemb;
     }
 
-    std::vector<unsigned char> serialize_to_binary(const std::vector<double>& data) {
+    inline std::vector<unsigned char> serialize_to_binary(const std::vector<double>& data) {
         std::vector<unsigned char> binaryData(data.size() * sizeof(double));
         std::memcpy(binaryData.data(), data.data(), binaryData.size());
         return binaryData;
     }
 
-    std::string encode_base64(const std::vector<double>& input) {
+    inline std::string encode_base64(const std::vector<double>& input) {
         try {
             std::vector<unsigned char> binaryData = serialize_to_binary(input);
             return base64_encode(binaryData.data(), binaryData.size());
@@ -94,7 +93,7 @@ namespace dwave {
     }
 
     // TODO check, this type may be std::vector<std::vector<bool>>
-    std::vector<bool> decodeBase64Solutions(const std::string& encoded) {
+    inline std::vector<bool> decodeBase64Solutions(const std::string& encoded) {
         std::string decoded = base64_decode(encoded);
         std::vector<bool> solution;
 
@@ -108,7 +107,7 @@ namespace dwave {
     }
 
     // TODO check, this type may be std::vector<double>
-    double decodeBase64Energies(const std::string& encoded) {
+    inline double decodeBase64Energies(const std::string& encoded) {
         std::string decoded = base64_decode(encoded);
         if (decoded.size() != sizeof(double)) {
             throw std::runtime_error("Invalid decoded size for energy value");
@@ -119,7 +118,7 @@ namespace dwave {
         return energy;
     }
 
-    std::string get_request(CURL* curl, const std::string& url) {
+    inline std::string get_request(CURL* curl, const std::string& url) {
         std::string response_string;
         curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
         curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, write_callback);
@@ -128,18 +127,18 @@ namespace dwave {
 
         if (res != CURLE_OK) {
             throw std::runtime_error(std::string("Error in HTTP request: ") + curl_easy_strerror(res));
-        } else {
-            long http_code;
-            curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &http_code);
-            if (http_code != 200) {
-                throw std::runtime_error("Error response code: " + std::to_string(http_code));
-            }
+        }
+
+        long http_code;
+        curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &http_code);
+        if (http_code != 200) {
+            throw std::runtime_error("Error response code: " + std::to_string(http_code));
         }
 
         return response_string;
     }
 
-    std::string post_request(CURL* curl, const std::string& url, const std::string& json) {
+    inline std::string post_request(CURL* curl, const std::string& url, const std::string& json) {
         std::string response_string;
         curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
         curl_easy_setopt(curl, CURLOPT_POST, 1L);
@@ -150,12 +149,12 @@ namespace dwave {
 
         if (res != CURLE_OK) {
             throw std::runtime_error(std::string("Error in HTTP request: ") + curl_easy_strerror(res));
-        } else {
-            long http_code;
-            curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &http_code);
-            if (http_code != 201) {
-                throw std::runtime_error("Error response code: " + std::to_string(http_code));
-            }
+        }
+
+        long http_code;
+        curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &http_code);
+        if (http_code != 201) {
+            throw std::runtime_error("Error response code: " + std::to_string(http_code));
         }
 
         return response_string;
@@ -165,7 +164,7 @@ namespace dwave {
     * DWAVE SAPI METHODS                              *
     **************************************************/
 
-    std::vector<Solver> get_solvers(CURL* curl) {
+    inline std::vector<Solver> get_solvers(CURL* curl) {
         std::string response_string = get_request(curl, SAPI_HOME_EU + SOLVER_ACCESS);
         nlohmann::json j = nlohmann::json::parse(response_string);
 
@@ -185,7 +184,7 @@ namespace dwave {
         return solvers;
     }
 
-    Solver get_solver(CURL* curl, const std::string& solver_id) {
+    inline Solver get_solver(CURL* curl, const std::string& solver_id) {
         std::vector<Solver> solvers = get_solvers(curl);
         for (auto solver : solvers) {
             if (solver.id == solver_id) return solver;
@@ -193,7 +192,7 @@ namespace dwave {
         throw std::runtime_error("Error: no solver with id " + solver_id);
     }
 
-    ProblemSubmission submit_problem(CURL* curl, const ProblemRequest& problem) {
+    inline ProblemSubmission submit_problem(CURL* curl, const ProblemRequest& problem) {
         nlohmann::json problemData;
         problemData["solver"] = problem.solver_id;
         problemData["label"] = problem.label;
@@ -216,7 +215,7 @@ namespace dwave {
         return response;
     }
 
-    ProblemAnswer get_problem_answer(CURL* curl, const std::string& problemID) {
+    inline ProblemAnswer get_problem_answer(CURL* curl, const std::string& problemID) {
         std::string response_string = get_request(curl, SAPI_HOME_EU + PROBLEM_ACCESS + problemID + "/" + ANSWER_ACCESS);
 
         nlohmann::json j = nlohmann::json::parse(response_string);
