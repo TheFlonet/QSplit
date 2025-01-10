@@ -30,6 +30,8 @@ class QSplit:
                 elif self.sampler == 'qpu':
                     sampleset = EmbeddingComposite(DWaveSampler()).sample_qubo(qubo.qubo_dict, num_reads=10, offset=qubo.offset)
                     q_time = sampleset.info['timing']['qpu_access_time'] / 1e6
+                else:
+                    raise Exception('Unsupported solver')
                 res = (sampleset.to_pandas_dataframe().drop(columns=['num_occurrences']).drop_duplicates()
                        .sort_values(by='energy', ascending=True))
                 qubo.solutions = res[res['energy'] == min(res['energy'])]
@@ -115,27 +117,40 @@ class QSplit:
 
     def __local_search(self, df: pd.DataFrame, qubo: QUBO) -> Tuple[pd.DataFrame, float]:
         q_time = 0
-        for i, row in df.iterrows():
-            no_energy = row.drop('energy')
+        for i in range(len(df)):
+            no_energy = df.loc[i].drop('energy')
 
             if not np.any(np.isnan(no_energy.values)):
                 df.loc[i, 'energy'] = no_energy.values.T @ qubo.qubo_matrix @ no_energy.values
             else:
                 nans = no_energy[np.isnan(no_energy)]
                 qubo_nans = defaultdict(int)
+                all_zero = True
                 for row_idx in nans.index:
                     for col_idx in nans.index:
-                        qubo_nans[(row_idx, col_idx)] = qubo.qubo_dict.get((row_idx, col_idx), 0)
-                if self.sampler == 'sa':
-                    nans_sol = SimulatedAnnealingSampler().sample_qubo(qubo_nans, num_reads=10, offset=qubo.offset)
-                elif self.sampler == 'qpu':
-                    nans_sol = EmbeddingComposite(DWaveSampler()).sample_qubo(qubo_nans, num_reads=10, offset=qubo.offset)
-                    q_time += nans_sol.info['timing']['qpu_access_time'] / 1e6
-                nans_sol = nans_sol.to_pandas_dataframe().sort_values(by='energy', ascending=True).iloc[0]
-                if np.isnan(df.loc[i, 'energy']):
-                    df.loc[i, 'energy'] = 0
-                df.loc[i, nans.index] = nans_sol.drop('energy')
-                df.loc[i, 'energy'] += nans_sol['energy']
+                        if (row_idx, col_idx) in qubo.qubo_dict:
+                            qubo_nans[(row_idx, col_idx)] = qubo.qubo_dict[(row_idx, col_idx)]
+                            all_zero = False
+                        else:
+                            qubo_nans[(row_idx, col_idx)] = 0
+                if all_zero:
+                    df.loc[i, nans.index] = 0
+                    no_energy = df.loc[i].drop('energy')
+                    cut = qubo.qubo_matrix.shape[0]
+                    df.loc[i, 'energy'] = no_energy.values[:cut].T @ qubo.qubo_matrix @ no_energy.values[:cut]
+                else:
+                    if self.sampler == 'sa':
+                        nans_sol = SimulatedAnnealingSampler().sample_qubo(qubo_nans, num_reads=10, offset=qubo.offset)
+                    elif self.sampler == 'qpu':
+                        nans_sol = EmbeddingComposite(DWaveSampler()).sample_qubo(qubo_nans, num_reads=10, offset=qubo.offset)
+                        q_time += nans_sol.info['timing']['qpu_access_time'] / 1e6
+                    else:
+                        raise Exception('Unsupported solver')
+                    nans_sol = nans_sol.to_pandas_dataframe().sort_values(by='energy', ascending=True).iloc[0]
+                    if np.isnan(df.loc[i, 'energy']):
+                        df.loc[i, 'energy'] = 0
+                    df.loc[i, nans.index] = nans_sol.drop('energy')
+                    df.loc[i, 'energy'] += nans_sol['energy']
 
         return df, q_time
 
