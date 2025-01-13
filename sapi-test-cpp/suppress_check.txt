@@ -1,0 +1,2 @@
+*:qsplit/external/*
+*:dwave/external/*

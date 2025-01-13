@@ -1,12 +1,14 @@
-#ifndef QSPLIT
-#define QSPLIT
+// Copyright 2025 Mario Bifulco
+
+#ifndef QSPLIT_SAMPLER_HPP_
+#define QSPLIT_SAMPLER_HPP_
 
 #include <array>
 #include <vector>
 #include <cmath>
 #include <xtensor/xview.hpp>
-#include <xtensor/xindex_view.hpp> 
-#include "qubo.hpp"
+#include <xtensor/xindex_view.hpp>
+#include "./qubo.hpp"
 
 namespace qsplit {
 
@@ -16,11 +18,14 @@ enum SamplerKind {
 };
 
 class QSplitSampler {
-public:
-    QSplitSampler(SamplerKind sampler, int cut_dim) : _sampler(sampler), _cut_dim(cut_dim) {}
+ public:
+    QSplitSampler(SamplerKind sampler, int cut_dim):
+        _sampler(sampler), _cut_dim(cut_dim) {}
 
-    void sample_qubo(qubo::QUBOProblem& qubo, double& energy) {
-        if (qubo.get_problem_size() < _cut_dim || xt::count_nonzero(qubo.get_matrix())() <= _cut_dim*(_cut_dim+1)/2) {
+    void sample_qubo(const qubo::QUBOProblem& qubo, double* energy) {
+        size_t nonzero = xt::count_nonzero(qubo.get_matrix())();
+        if (qubo.get_problem_size() < _cut_dim ||
+            nonzero <= _cut_dim*(_cut_dim+1)/2) {
             throw std::logic_error("Not implemented yet");
         }
 
@@ -28,13 +33,14 @@ public:
         double q_time = 0;
         for (auto sq : subqubos) {
             double tmp_q_time;
-            sample_qubo(sq, tmp_q_time);
+            sample_qubo(sq, &tmp_q_time);
             q_time += tmp_q_time;
         }
 
-        aggregate(qubo, subqubos, q_time);
+        aggregate(qubo, subqubos, &q_time);
     }
-private:
+
+ private:
     SamplerKind _sampler;
     int _cut_dim;
 
@@ -64,12 +70,10 @@ private:
         return {
             qubo::QUBOProblem(
                 xt::view(qubo.get_matrix(), xt::range(0, half), xt::range(0, half)),
-                qubo.get_offset(), cols_first, rows_first, false
-            ),
+                qubo.get_offset(), cols_first, rows_first, false),
             qubo::QUBOProblem(
                 xt::view(qubo.get_matrix(), xt::range(0, half), xt::range(half, qubo_size)),
-                qubo.get_offset(), cols_last, rows_first, true
-            ),
+                qubo.get_offset(), cols_last, rows_first, true),
             qubo::QUBOProblem(
                 xt::view(qubo.get_matrix(), xt::range(half, qubo_size), xt::range(half, qubo_size)),
                 qubo.get_offset(), cols_last, rows_last, false
@@ -92,18 +96,22 @@ private:
             res.push_back(tmp);
         }
         return res;
-    } 
+    }
 
     qubo::sol_df_t combine_ul_lr(const qubo::QUBOProblem& ul, const qubo::QUBOProblem& lr) {
         std::vector<int> all_index(ul.get_rows_idx().begin(), ul.get_rows_idx().end());
         all_index.insert(all_index.end(), lr.get_cols_idx().begin(), lr.get_cols_idx().end());
-        
+
         qubo::sol_df_t res;
         for (size_t i = 0; i < ul.get_solution_df().size(); ++i) {
             qubo::solved_assignment tmp;
 
-            for (auto const& [key, val] : ul.get_solution_df()[i].first) { tmp.first[key] = val; }
-            for (auto const& [key, val] : lr.get_solution_df()[i].first) { tmp.first[key] = val; }
+            for (auto const& [key, val] : ul.get_solution_df()[i].first) {
+                tmp.first[key] = val;
+            }
+            for (auto const& [key, val] : lr.get_solution_df()[i].first) {
+                tmp.first[key] = val;
+            }
             tmp.second = ul.get_solution_df()[i].second + lr.get_solution_df()[i].second;
             res.push_back(tmp);
         }
@@ -157,11 +165,12 @@ private:
         return res;
     }
 
-    double local_search(const qubo::sol_df_t& combined_df, qubo::QUBOProblem& qubo) {
+    double local_search(const qubo::sol_df_t& combined_df, const qubo::QUBOProblem& qubo) {
         throw std::logic_error("Not implemented yet");
     }
 
-    void aggregate(qubo::QUBOProblem& qubo, std::array<qubo::QUBOProblem, 3>& solved_subqubos, double& q_time) {
+    void aggregate(const qubo::QUBOProblem& qubo, const std::array<qubo::QUBOProblem, 3>& solved_subqubos,
+        double* q_time) {
         // Aggregate upper-left qubo with lower-right
         qubo::sol_df_t starting_sols = combine_ul_lr(solved_subqubos[0], solved_subqubos[2]);
         // Set missing columns in upper-right qubo to qubo::QubitState.Error
@@ -171,10 +180,10 @@ private:
         // Combine
         qubo::sol_df_t combined_df = combine_dataframe(starting_sols, closest_df);
         // Conflicts resolution
-        q_time += local_search(combined_df, qubo);
+        *q_time += local_search(combined_df, qubo);
     }
 };
 
-}
+}  // namespace qsplit
 
-#endif // QSPLIT
+#endif  // QSPLIT_SAMPLER_HPP_

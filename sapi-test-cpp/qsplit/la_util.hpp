@@ -1,5 +1,7 @@
-#ifndef LA_UTIL
-#define LA_UTIL
+// Copyright 2025 Mario Bifulco
+
+#ifndef LA_UTIL_HPP_
+#define LA_UTIL_HPP_
 
 #define XTENSOR_USE_XSIMD
 #include <xtensor/xarray.hpp>
@@ -17,7 +19,7 @@ xt::xarray<double> lu(const xt::xarray<double>& mat) {
             double factor = up(j, i) / up(i, i);
             auto up_row_j = xt::view(up, j, xt::all());
             auto up_row_i = xt::view(up, i, xt::all());
-            up_row_j -= factor * up_row_i; 
+            up_row_j -= factor * up_row_i;
         }
     }
 
@@ -35,6 +37,6 @@ bool is_upper(const xt::xarray<double>& mat) {
     return true;
 }
 
-}
+}  // namespace la
 
-#endif // LA_UTIL
+#endif  // LA_UTIL_HPP_

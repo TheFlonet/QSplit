@@ -1,7 +1,12 @@
+// Copyright 2025 Mario Bifulco
+
 #include <iostream>
 #include <fstream>
 #include <cstdlib>
 #include <string>
+#include <memory>
+#include <vector>
+#include <unordered_map>
 #include "dwave/dwave.hpp"
 #include <me/find_embedding/find_embedding.hpp>
 
@@ -15,7 +20,9 @@ std::ostream& operator<<(std::ostream& os, const std::vector<S>& vector) {
 }
 
 dwave::ProblemRequest get_dummy_problem() {
-    std::unordered_map<std::string, double> biases = {{"x", 0.25}, {"y", 0.5}, {"xy", -1.0}};
+    std::unordered_map<std::string, double> biases = {
+        {"x", 0.25}, {"y", 0.5}, {"xy", -1.0}
+    };
 
     std::vector<double> lin_vec(5614, NAN);
     lin_vec[60] = biases["x"];
@@ -36,13 +43,17 @@ dwave::ProblemRequest get_dummy_problem() {
 }
 
 class MyCppInteractions : public find_embedding::LocalInteraction {
-  public:
+ public:
     bool _canceled = false;
     void cancel() { _canceled = true; }
 
-  private:
-    void displayOutputImpl(int, const std::string& mess) const override { std::cout << mess << std::endl; }
-    void displayErrorImpl(int, const std::string& mess) const override { std::cerr << mess << std::endl; }
+ private:
+    void displayOutputImpl(int, const std::string& mess) const override {
+        std::cout << mess << std::endl;
+    }
+    void displayErrorImpl(int, const std::string& mess) const override {
+        std::cerr << mess << std::endl;
+    }
     [[nodiscard]] bool cancelledImpl() const override { return _canceled; }
 };
 
@@ -86,18 +97,18 @@ int main() {
     curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
 
     dwave::Solver qpu_solver = dwave::get_solver(curl, SOLVER_ID);
-    std::vector<int> aside;
-    std::vector<int> bside;
+    std::vector<int> as;
+    std::vector<int> bs;
     for (auto couple : qpu_solver.properties.couplers) {
-        aside.push_back(couple[0]);
-        bside.push_back(couple[1]);
+        as.push_back(couple[0]);
+        bs.push_back(couple[1]);
     }
-    graph::input_graph qpu_graph(qpu_solver.properties.num_qubits, aside, bside);
+    graph::input_graph qpu_graph(qpu_solver.properties.num_qubits, as, bs);
     graph::input_graph input(3, {0, 1, 2}, {1, 2, 0});
     find_embedding::optional_parameters params;
     params.localInteractionPtr = std::make_shared<MyCppInteractions>();
     std::vector<std::vector<int>> chains;
-    
+
     if (!findEmbedding(input, qpu_graph, params, chains)) {
         std::cerr << "Error: unable to find the embedding" << std::endl;
         return -1;

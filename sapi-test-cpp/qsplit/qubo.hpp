@@ -1,41 +1,47 @@
-#ifndef QUBO
-#define QUBO
+// Copyright 2025 Mario Bifulco
 
-#define XTENSOR_USE_XSIMD
-#include <xtensor/xarray.hpp>
-#include <xtensor/xview.hpp>
+#ifndef QSPLIT_QUBO_HPP_
+#define QSPLIT_QUBO_HPP_
+
 #include <cstdint>
 #include <vector>
 #include <map>
-#include "la_util.hpp"
+#include <utility>
+#define XTENSOR_USE_XSIMD
+#include <xtensor/xarray.hpp>
+#include <xtensor/xview.hpp>
+#include "./la_util.hpp"
 
 namespace qubo {
 
-    enum class QubitState : uint8_t {
-        False = 0,
-        True = 1,
-        Error = 2
-    };
+enum class QubitState : uint8_t {
+    False = 0,
+    True = 1,
+    Error = 2
+};
 
-    using assignment = std::map<size_t, QubitState>;
-    using solved_assignment = std::pair<assignment, double>;
-    using sol_df_t = std::vector<solved_assignment>;
+using assignment = std::map<size_t, QubitState>;
+using solved_assignment = std::pair<assignment, double>;
+using sol_df_t = std::vector<solved_assignment>;
 
 class QUBOProblem {
-private:
+ private:
     xt::xarray<double> _matrix;
     double _offset;
     std::vector<int> _cols_idx;
     std::vector<int> _rows_idx;
     size_t _problem_size;
     sol_df_t _solution_df;
-public:
-    QUBOProblem(const xt::xarray<double>& matrix, double offset, const std::vector<int> cols_idx, 
+
+ public:
+    QUBOProblem(const xt::xarray<double>& matrix, double offset,
+                const std::vector<int> cols_idx,
                 const std::vector<int> rows_idx, bool to_transform) {
-        if (!la::is_square(matrix)) throw std::invalid_argument("Error: input matrix must be square");
-        if (cols_idx.size() != rows_idx.size()) 
+        if (!la::is_square(matrix))
+            throw std::invalid_argument("Error: input matrix must be square");
+        if (cols_idx.size() != rows_idx.size())
             throw std::invalid_argument("Error: cols_idx and rows_idx have different sizes");
-        if (cols_idx.size() != matrix.shape()[0]) 
+        if (cols_idx.size() != matrix.shape()[0])
             throw std::invalid_argument("Error: matrix size must be equal to indexes size");
 
         xt::xarray<double> new_mat;
@@ -99,6 +105,6 @@ public:
     }
 };
 
-}
+}  // namespace qubo
 
-#endif // QUBO
+#endif  // QSPLIT_QUBO_HPP_
