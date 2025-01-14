@@ -7,18 +7,12 @@ from dwave_qbsolv import QBSolv
 from dotenv import load_dotenv
 from qsplit.QSplitSampler import QSplit
 from qsplit.QUBO import QUBO
-import cProfile
-import pstats
 import dimod
 import pandas as pd
 import os
 from util import normalize_qubo
 
-def runner(kind: str, qubo: QUBO, q_cut: int = 64, profile: bool = False):
-    if profile:
-        profiler = cProfile.Profile()
-        profiler.enable()
-
+def runner(kind: str, qubo: QUBO, q_cut: int = 64):
     s = time.time()
     if kind == 'hybrid':
         sol = LeapHybridSampler().sample_qubo(qubo.qubo_dict, offset=qubo.offset).to_pandas_dataframe()
@@ -27,19 +21,21 @@ def runner(kind: str, qubo: QUBO, q_cut: int = 64, profile: bool = False):
     elif kind == 'qbsolv_qpu':
         sol = QBSolv().sample_qubo(qubo.qubo_dict, solver='dw', offset=qubo.offset).to_pandas_dataframe()
     elif kind == 'sa':
-        sol = SimulatedAnnealingSampler().sample_qubo(qubo.qubo_dict, offset=qubo.offset).to_pandas_dataframe()
+        sol = SimulatedAnnealingSampler().sample_qubo(qubo.qubo_dict, offset=qubo.offset, num_reads=10).to_pandas_dataframe()
     elif kind == 'qsplit_sa':
         sol = QSplit('sa', q_cut).sample_qubo(qubo)[0].solutions
     elif kind == 'qsplit_qpu':
         sol = QSplit('qpu', q_cut).sample_qubo(qubo)[0].solutions
     e = time.time()
 
-    if profile:
-        profiler.disable()
-        stats = pstats.Stats(profiler)
-        stats.sort_stats(pstats.SortKey.TIME).print_stats(1)
     log.info(f'Running {kind} in {e-s:.2f}s, best energy: {sol["energy"].min():.2f}')
 
+def sol_range(coeffs, offset):
+    solver = SimulatedAnnealingSampler()
+    min_val = solver.sample_qubo(coeffs, offset=offset, num_reads=100).to_pandas_dataframe()['energy'].min()
+    max_val = -solver.sample_qubo({k: -v for k, v in coeffs.items()}, offset=offset, num_reads=100).to_pandas_dataframe()['energy'].min()
+
+    return round(min_val, 2), round(max_val, 2)
 
 def main():
     load_dotenv()
@@ -52,9 +48,11 @@ def main():
         coeffs, qubo_size = normalize_qubo(coeffs)
 
         log.info(f'{idx+1}/{len(problems)}) {p[0]}')
-        runner('qsplit_sa', QUBO(coeffs, offset=offset, cols_idx=list(range(qubo_size))), profile=False)
-        runner('qbsolv_sa', QUBO(coeffs, offset=offset, cols_idx=list(range(qubo_size))), profile=False)
-        runner('sa', QUBO(coeffs, offset=offset, cols_idx=list(range(qubo_size))), profile=False)
+        qubo_problem = QUBO(coeffs, offset=offset, cols_idx=list(range(qubo_size)))
+        log.info(f'Range {sol_range(coeffs, offset)}')
+        runner('qsplit_sa', qubo_problem)
+        runner('qbsolv_sa', qubo_problem)
+        runner('sa', qubo_problem)
 
 
 if __name__ == '__main__':

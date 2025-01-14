@@ -140,9 +140,9 @@ class QSplit:
                     df.loc[i, 'energy'] = no_energy.values[:cut].T @ qubo.qubo_matrix @ no_energy.values[:cut]
                 else:
                     if self.sampler == 'sa':
-                        nans_sol = SimulatedAnnealingSampler().sample_qubo(qubo_nans, num_reads=10, offset=qubo.offset)
+                        nans_sol = SimulatedAnnealingSampler().sample_qubo(qubo_nans, num_reads=5, offset=qubo.offset)
                     elif self.sampler == 'qpu':
-                        nans_sol = EmbeddingComposite(DWaveSampler()).sample_qubo(qubo_nans, num_reads=10, offset=qubo.offset)
+                        nans_sol = EmbeddingComposite(DWaveSampler()).sample_qubo(qubo_nans, num_reads=5, offset=qubo.offset)
                         q_time += nans_sol.info['timing']['qpu_access_time'] / 1e6
                     else:
                         raise Exception('Unsupported solver')
