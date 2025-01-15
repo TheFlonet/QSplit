@@ -1,7 +1,7 @@
 import logging
 import time
 import dimod.lp
-from dwave.system import LeapHybridSampler
+from dwave.system import LeapHybridSampler, EmbeddingComposite, DWaveSampler
 from dwave.samplers import SimulatedAnnealingSampler
 from dwave_qbsolv import QBSolv
 from dotenv import load_dotenv
@@ -19,9 +19,11 @@ def runner(kind: str, qubo: QUBO, q_cut: int = 64):
     elif kind == 'qbsolv_sa':
         sol = QBSolv().sample_qubo(qubo.qubo_dict, offset=qubo.offset).to_pandas_dataframe()
     elif kind == 'qbsolv_qpu':
-        sol = QBSolv().sample_qubo(qubo.qubo_dict, solver='dw', offset=qubo.offset).to_pandas_dataframe()
+        sol = QBSolv().sample_qubo(qubo.qubo_dict, solver=EmbeddingComposite(DWaveSampler()), 
+                                   offset=qubo.offset, solver_limit=64).to_pandas_dataframe()
     elif kind == 'sa':
-        sol = SimulatedAnnealingSampler().sample_qubo(qubo.qubo_dict, offset=qubo.offset, num_reads=10).to_pandas_dataframe()
+        sol = SimulatedAnnealingSampler().sample_qubo(qubo.qubo_dict, offset=qubo.offset, 
+                                                      num_reads=10).to_pandas_dataframe()
     elif kind == 'qsplit_sa':
         sol = QSplit('sa', q_cut).sample_qubo(qubo)[0].solutions
     elif kind == 'qsplit_qpu':
@@ -33,7 +35,8 @@ def runner(kind: str, qubo: QUBO, q_cut: int = 64):
 def sol_range(coeffs, offset):
     solver = SimulatedAnnealingSampler()
     min_val = solver.sample_qubo(coeffs, offset=offset, num_reads=100).to_pandas_dataframe()['energy'].min()
-    max_val = -solver.sample_qubo({k: -v for k, v in coeffs.items()}, offset=offset, num_reads=100).to_pandas_dataframe()['energy'].min()
+    max_val = -solver.sample_qubo({k: -v for k, v in coeffs.items()}, offset=offset, 
+                                  num_reads=100).to_pandas_dataframe()['energy'].min()
 
     return round(min_val, 2), round(max_val, 2)
 
