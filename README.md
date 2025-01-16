@@ -22,7 +22,3 @@ In particular, we dealt the problems with:
 - **O** equal to *Q*,
 - **V** equal to *B* and,
 - no slack variables.
-
-## LaTeX style for the report
-
-[EPTCS](https://github.com/EPTCS/style)

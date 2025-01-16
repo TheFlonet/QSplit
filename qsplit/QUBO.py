@@ -2,7 +2,7 @@ from typing import List
 import numpy as np
 import pandas as pd
 from scipy.linalg import lu
-from util import QUBO_DICT
+from util.util import QUBO_DICT
 
 
 class QUBO:

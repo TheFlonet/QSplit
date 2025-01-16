@@ -1,16 +1,13 @@
 import logging
 import time
-import dimod.lp
 from dwave.system import LeapHybridSampler, EmbeddingComposite, DWaveSampler
 from dwave.samplers import SimulatedAnnealingSampler
 from dwave_qbsolv import QBSolv
 from dotenv import load_dotenv
 from qsplit.QSplitSampler import QSplit
 from qsplit.QUBO import QUBO
-import dimod
 import pandas as pd
-import os
-from util import normalize_qubo
+import json
 
 def runner(kind: str, qubo: QUBO, q_cut: int = 64):
     s = time.time()
@@ -42,16 +39,22 @@ def sol_range(coeffs, offset):
 
 def main():
     load_dotenv()
-    os.system('clear')
     df = pd.read_csv('dataset/problems.csv')
     problems = list(df.itertuples(index=False, name=None))
 
-    for idx, p in enumerate(problems):
-        coeffs, offset = dimod.cqm_to_bqm(dimod.lp.load('dataset/' + p[0]))[0].to_qubo()
-        coeffs, qubo_size = normalize_qubo(coeffs)
+    for idx, (problem_name, num_vars) in enumerate(problems):
+        coeffs = {}
+        with open(f'./dataset/qubo_instances/{problem_name}.json') as json_file:
+            r = json.load(json_file)
+            offset = r['offset']
+            mat = r['qubo_matrix']
+            for i, row in enumerate(mat):
+                for j, cell in enumerate(row):
+                    if cell != 0:
+                        coeffs[(i, j)] = cell
 
-        log.info(f'{idx+1}/{len(problems)}) {p[0]}')
-        qubo_problem = QUBO(coeffs, offset=offset, cols_idx=list(range(qubo_size)))
+        log.info(f'{idx+1}/{len(problems)}) {problem_name}')
+        qubo_problem = QUBO(coeffs, offset=offset, cols_idx=list(range(num_vars)))
         log.info(f'Range {sol_range(coeffs, offset)}')
         runner('qsplit_sa', qubo_problem)
         runner('qbsolv_sa', qubo_problem)
