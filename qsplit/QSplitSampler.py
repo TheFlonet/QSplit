@@ -72,39 +72,19 @@ class QSplit:
         # Search the closest assignments between upper-right qubo and merged solution (UL and LR qubos)
         closest_df = self.__get_closest_assignments(starting_sols, ur_qubo_filled)
         # Combine
-        combined_df = pd.DataFrame([self.__combine_rows(row1, row2) for (_, row1), (_, row2) in
-                                    zip(starting_sols.iterrows(), closest_df.iterrows())],
-                                   columns=starting_sols.columns)
+        combined_df = starting_sols.where(starting_sols == closest_df, np.nan)
+        rows_with_nan = starting_sols.isna().any(axis=1) | closest_df.isna().any(axis=1)
+        combined_df['energy'] = np.where(rows_with_nan | (starting_sols['energy'].isna() & closest_df['energy'].isna()), 
+            np.nan, np.where(starting_sols['energy'].isna(),
+                             closest_df['energy'], np.where(closest_df['energy'].isna(), 
+                                                            starting_sols['energy'], 
+                                                            starting_sols['energy'] + closest_df['energy'])))
+
         # Conflicts resolution
         qubo.solutions, local_q_time = self.__local_search(combined_df, qubo)
         qubo.solutions = qubo.solutions.reset_index(drop=True).drop_duplicates().nsmallest(n=10, columns='energy')
 
         return qubo, prev_q_time + local_q_time
-
-    @staticmethod
-    def __combine_rows(row1: pd.Series, row2: pd.Series) -> List[float | Any]:
-        combined_row = []
-        for col in row1.index:
-            val1, val2 = row1[col], row2[col]
-            if col == 'energy':
-                if (np.nan in combined_row) or (np.isnan(val1) and np.isnan(val2)):
-                    combined_row.append(np.nan)
-                elif np.isnan(val1):
-                    combined_row.append(val2)
-                elif np.isnan(val2):
-                    combined_row.append(val1)
-                else:
-                    combined_row.append(val1 + val2)
-            else:
-                if pd.isna(val2) and not pd.isna(val1):
-                    combined_row.append(val1)
-                elif pd.isna(val1) and not pd.isna(val2):
-                    combined_row.append(val2)
-                elif val1 == val2:
-                    combined_row.append(val1)
-                else:
-                    combined_row.append(np.nan)
-        return combined_row
 
     def __get_closest_assignments(self, starting_sols: pd.DataFrame, ur_qubo_filled: pd.DataFrame) -> pd.DataFrame:
         closest_rows = []
