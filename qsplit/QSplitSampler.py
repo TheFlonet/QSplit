@@ -68,7 +68,7 @@ class QSplit:
         # Aggregate upper-left qubo with lower-right
         starting_sols = self.__combine_ul_lr(solutions[0], solutions[2])
         # Set missing columns in upper-right qubo to NaN
-        ur_qubo_filled = self.__fill_with_nan(starting_sols.columns, solutions[1].solutions)
+        ur_qubo_filled = solutions[1].solutions.reindex(columns=starting_sols.columns, fill_value=np.nan)
         # Search the closest assignments between upper-right qubo and merged solution (UL and LR qubos)
         closest_df = self.__get_closest_assignments(starting_sols, ur_qubo_filled)
         # Combine
@@ -87,25 +87,21 @@ class QSplit:
         return qubo, prev_q_time + local_q_time
 
     def __get_closest_assignments(self, starting_sols: pd.DataFrame, ur_qubo_filled: pd.DataFrame) -> pd.DataFrame:
-        closest_rows = []
-        for _, row in starting_sols.iterrows():
-            distances = []
-            for _, sol_row in ur_qubo_filled.iterrows():
-                distance = self.__nan_hamming_distance(row.values, sol_row.values)
-                distances.append(distance)
-            closest_idx = np.argmin(distances)
-            to_append = ur_qubo_filled.iloc[closest_idx].copy()
-            if np.any(to_append.isna()):
-                to_append['energy'] = np.nan
-            closest_rows.append(to_append)
-        return pd.DataFrame(closest_rows).reset_index(drop=True)
+        def nan_hamming_matrix(df1, df2):
+            df1_expanded = np.repeat(df1.values[:, np.newaxis, :], df2.shape[0], axis=1)
+            df2_expanded = np.repeat(df2.values[np.newaxis, :, :], df1.shape[0], axis=0)
+            mask = ~np.isnan(df1_expanded) & ~np.isnan(df2_expanded)
+            mismatches = (df1_expanded != df2_expanded) & mask
+            distances = mismatches.sum(axis=2)
+            return distances
 
-    @staticmethod
-    def __nan_hamming_distance(a: np.ndarray, b: np.ndarray) -> float | Any:
-        mask = ~np.isnan(a) & ~np.isnan(b)
-        if np.sum(mask) == 0:
-            return np.inf
-        return np.sum(a[mask] != b[mask]) / np.sum(mask)
+        distances_matrix = nan_hamming_matrix(starting_sols, ur_qubo_filled)
+        closest_indices = np.argmin(distances_matrix, axis=1)
+        closest_rows = ur_qubo_filled.iloc[closest_indices].reset_index(drop=True)
+        rows_with_nan = closest_rows.isna().any(axis=1)
+        closest_rows.loc[rows_with_nan, 'energy'] = np.nan
+
+        return closest_rows
 
     def __local_search(self, df: pd.DataFrame, qubo: QUBO) -> Tuple[pd.DataFrame, float]:
         q_time = 0
@@ -141,13 +137,6 @@ class QSplit:
 
         return df, q_time
 
-    @staticmethod
-    def __fill_with_nan(schema: pd.Index, df_to_fill: pd.DataFrame) -> pd.DataFrame:
-        missing_columns = set(schema) - set(df_to_fill.columns)
-        for col in missing_columns:
-            df_to_fill[col] = np.nan
-        return df_to_fill[schema]
-
     def __combine_ul_lr(self, ul: QUBO, lr: QUBO) -> pd.DataFrame:
         all_indices = sorted(list(set(ul.rows_idx).union(lr.cols_idx)))
         ul.solutions['tmp'] = 1
@@ -157,7 +146,7 @@ class QSplit:
         merge = merge.drop(['energy_x', 'energy_y', 'tmp'], axis=1)
         ul.solutions.drop('tmp', axis=1, inplace=True)
         lr.solutions.drop('tmp', axis=1, inplace=True)
-        return self.__fill_with_nan(pd.Index(all_indices + ['energy']), merge)
+        return merge.reindex(columns=all_indices + ['energy'], fill_value=np.nan)
 
     @staticmethod
     def __split_problem(qubo: QUBO) -> Tuple[QUBO, QUBO, QUBO]:
