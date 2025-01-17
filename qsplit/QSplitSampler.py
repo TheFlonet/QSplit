@@ -87,7 +87,7 @@ class QSplit:
         return qubo, prev_q_time + local_q_time
 
     def __get_closest_assignments(self, starting_sols: pd.DataFrame, ur_qubo_filled: pd.DataFrame) -> pd.DataFrame:
-        def nan_hamming_matrix(df1, df2):
+        def nan_hamming_matrix(df1: pd.DataFrame, df2: pd.DataFrame) -> np.ndarray:
             df1_expanded = np.repeat(df1.values[:, np.newaxis, :], df2.shape[0], axis=1)
             df2_expanded = np.repeat(df2.values[np.newaxis, :, :], df1.shape[0], axis=0)
             mask = ~np.isnan(df1_expanded) & ~np.isnan(df2_expanded)
@@ -105,35 +105,34 @@ class QSplit:
 
     def __local_search(self, df: pd.DataFrame, qubo: QUBO) -> Tuple[pd.DataFrame, float]:
         q_time = 0
-        for i in range(len(df)):
-            no_energy = df.loc[i].drop('energy')
+        df_no_energy = df.drop(columns=['energy'])
+        df['energy'] = df_no_energy.apply(lambda row: row.T @ qubo.qubo_matrix @ row 
+                                          if not row.isna().any() else np.nan, axis=1)
 
-            if not np.any(np.isnan(no_energy.values)):
-                df.loc[i, 'energy'] = no_energy.values.T @ qubo.qubo_matrix @ no_energy.values
+        rows_with_nans = df_no_energy[df_no_energy.isna()]
+        for idx, row in rows_with_nans.iterrows():
+            nan_indices = row.index
+            qubo_nans = {
+                (i, j): qubo.qubo_dict.get((i, j), 0)
+                for i in nan_indices
+                for j in nan_indices
+            }
+            all_zero = all(value == 0 for value in qubo_nans.values())
+            
+            if all_zero:
+                df.loc[idx, nan_indices] = 0
+                updated_row = df_no_energy.loc[idx].fillna(0)[:qubo.qubo_matrix.shape[0]]
+                df.loc[idx, 'energy'] = updated_row.T @ qubo.qubo_matrix @ updated_row
             else:
-                nans = no_energy[np.isnan(no_energy)]
-                qubo_nans = defaultdict(int)
-                all_zero = True
-                for row_idx in nans.index:
-                    for col_idx in nans.index:
-                        if (row_idx, col_idx) in qubo.qubo_dict:
-                            qubo_nans[(row_idx, col_idx)] = qubo.qubo_dict[(row_idx, col_idx)]
-                            all_zero = False
-                        else:
-                            qubo_nans[(row_idx, col_idx)] = 0
-                if all_zero:
-                    df.loc[i, nans.index] = 0
-                    no_energy = df.loc[i].drop('energy')
-                    cut = qubo.qubo_matrix.shape[0]
-                    df.loc[i, 'energy'] = no_energy.values[:cut].T @ qubo.qubo_matrix @ no_energy.values[:cut]
-                else:
-                    nans_sol, tmp_q_time = self.__get_result(qubo_nans, qubo.offset, 3)
-                    nans_sol = nans_sol.iloc[0]
-                    q_time += tmp_q_time
-                    if np.isnan(df.loc[i, 'energy']):
-                        df.loc[i, 'energy'] = 0
-                    df.loc[i, nans.index] = nans_sol.drop('energy')
-                    df.loc[i, 'energy'] += nans_sol['energy']
+                # TODO handle big problems
+                nans_sol, tmp_q_time = self.__get_result(qubo_nans, qubo.offset, 3)
+                nans_sol = nans_sol.iloc[0]
+                q_time += tmp_q_time
+                
+                df.loc[idx, nan_indices] = nans_sol.drop('energy')
+                if np.isnan(df.loc[idx, 'energy']):
+                    df.loc[idx, 'energy'] = 0
+                df.loc[idx, 'energy'] += nans_sol['energy']
 
         return df, q_time
 

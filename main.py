@@ -9,7 +9,7 @@ from qsplit.QUBO import QUBO
 import pandas as pd
 import json
 
-def runner(kind: str, qubo: QUBO, q_cut: int = 64):
+def runner(kind: str, qubo: QUBO, q_cut: int = 100):
     s = time.time()
     if kind == 'hybrid':
         sol = LeapHybridSampler().sample_qubo(qubo.qubo_dict, offset=qubo.offset).to_pandas_dataframe()
@@ -17,7 +17,7 @@ def runner(kind: str, qubo: QUBO, q_cut: int = 64):
         sol = QBSolv().sample_qubo(qubo.qubo_dict, offset=qubo.offset).to_pandas_dataframe()
     elif kind == 'qbsolv_qpu':
         sol = QBSolv().sample_qubo(qubo.qubo_dict, solver=EmbeddingComposite(DWaveSampler()), 
-                                   offset=qubo.offset, solver_limit=64).to_pandas_dataframe()
+                                   offset=qubo.offset, solver_limit=q_cut).to_pandas_dataframe()
     elif kind == 'sa':
         sol = SimulatedAnnealingSampler().sample_qubo(qubo.qubo_dict, offset=qubo.offset, 
                                                       num_reads=10).to_pandas_dataframe()
