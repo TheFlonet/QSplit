@@ -1,6 +1,8 @@
+import cProfile
 import logging
 from collections import defaultdict
-from typing import Tuple, List, Any
+import pstats
+from typing import Tuple, List, Dict
 from dwave.samplers import SimulatedAnnealingSampler
 from dwave.system import EmbeddingComposite, DWaveSampler
 import numpy as np
@@ -9,26 +11,24 @@ from qsplit.QUBO import QUBO
 import asyncio
 
 log = logging.getLogger('qsplit')
+PROFILE = False
 
 
 class QSplit:
     def __init__(self, sampler: str, cut_dim: int):
         self.sampler = sampler
+        self.default_sampler = SimulatedAnnealingSampler()
         self.cut_dim = cut_dim
-        self.__cache = {}
 
-    def __get_result(self, qubo_dict, offset, reads):
-        k = frozenset(qubo_dict)
-        if k in self.__cache:
-            sampleset = self.__cache[k]
+    def __get_result(self, qubo_dict: Dict, offset: float, reads: int, use_default: bool = False) -> Tuple[pd.DataFrame, float]:
+        if use_default:
+            sampleset = self.default_sampler.sample_qubo(qubo_dict, num_reads=reads, offset=offset)
             q_time = 0
         elif self.sampler == 'sa':
             sampleset = SimulatedAnnealingSampler().sample_qubo(qubo_dict, num_reads=reads, offset=offset)
-            self.__cache[k] = sampleset
             q_time = 0
         elif self.sampler == 'qpu':
             sampleset = EmbeddingComposite(DWaveSampler()).sample_qubo(qubo_dict, num_reads=reads, offset=offset)
-            self.__cache[k] = sampleset
             q_time = sampleset.info['timing']['qpu_access_time'] / 1e6
         else:
             raise Exception('Unsupported solver')
@@ -46,7 +46,7 @@ class QSplit:
                 q_time = 0
             else:
                 res, q_time = self.__get_result(qubo.qubo_dict, qubo.offset, 10)
-                qubo.solutions = res[res['energy'] == min(res['energy'])]
+                qubo.solutions = res[res['energy'] == res['energy'].min()]
             return qubo, q_time
 
         sub_problems = self.__split_problem(qubo)
@@ -59,12 +59,23 @@ class QSplit:
             solutions.append(solution)
             total_q_time += qpu_time
 
-        return self.__aggregate_solutions(solutions, total_q_time, qubo)
+        return self.__aggregate_solutions(solutions, qubo), total_q_time
 
     def sample_qubo(self, qubo: QUBO) -> Tuple[QUBO, float]:
-        return asyncio.run(self.async_sample_qubo(qubo))
+        if PROFILE:
+            profiler = cProfile.Profile()
+            profiler.enable() 
+        
+        res = asyncio.run(self.async_sample_qubo(qubo))
 
-    def __aggregate_solutions(self, solutions: List[QUBO], prev_q_time: float, qubo: QUBO) -> Tuple[QUBO, float]:
+        if PROFILE:
+            profiler.disable()
+            stats = pstats.Stats(profiler)
+            stats.sort_stats(pstats.SortKey.TIME).print_stats(5)
+
+        return res
+
+    def __aggregate_solutions(self, solutions: List[QUBO], qubo: QUBO) -> QUBO:
         # Aggregate upper-left qubo with lower-right
         starting_sols = self.__combine_ul_lr(solutions[0], solutions[2])
         # Set missing columns in upper-right qubo to NaN
@@ -81,10 +92,10 @@ class QSplit:
                                                             starting_sols['energy'] + closest_df['energy'])))
 
         # Conflicts resolution
-        qubo.solutions, local_q_time = self.__local_search(combined_df, qubo)
+        qubo.solutions = self.__local_search(combined_df, qubo)
         qubo.solutions = qubo.solutions.reset_index(drop=True).drop_duplicates().nsmallest(n=10, columns='energy')
 
-        return qubo, prev_q_time + local_q_time
+        return qubo
 
     def __get_closest_assignments(self, starting_sols: pd.DataFrame, ur_qubo_filled: pd.DataFrame) -> pd.DataFrame:
         def nan_hamming_matrix(df1: pd.DataFrame, df2: pd.DataFrame) -> np.ndarray:
@@ -103,8 +114,7 @@ class QSplit:
 
         return closest_rows
 
-    def __local_search(self, df: pd.DataFrame, qubo: QUBO) -> Tuple[pd.DataFrame, float]:
-        q_time = 0
+    def __local_search(self, df: pd.DataFrame, qubo: QUBO) -> pd.DataFrame:
         df_no_energy = df.drop(columns=['energy'])
         df['energy'] = df_no_energy.apply(lambda row: row.T @ qubo.qubo_matrix @ row 
                                           if not row.isna().any() else np.nan, axis=1)
@@ -124,17 +134,14 @@ class QSplit:
                 updated_row = df_no_energy.loc[idx].fillna(0)[:qubo.qubo_matrix.shape[0]]
                 df.loc[idx, 'energy'] = updated_row.T @ qubo.qubo_matrix @ updated_row
             else:
-                # TODO handle big problems
-                nans_sol, tmp_q_time = self.__get_result(qubo_nans, qubo.offset, 3)
-                nans_sol = nans_sol.iloc[0]
-                q_time += tmp_q_time
+                nans_sol = self.__get_result(qubo_nans, qubo.offset, 3, use_default=True)[0].iloc[0]
                 
                 df.loc[idx, nan_indices] = nans_sol.drop('energy')
                 if np.isnan(df.loc[idx, 'energy']):
                     df.loc[idx, 'energy'] = 0
                 df.loc[idx, 'energy'] += nans_sol['energy']
 
-        return df, q_time
+        return df
 
     def __combine_ul_lr(self, ul: QUBO, lr: QUBO) -> pd.DataFrame:
         all_indices = sorted(list(set(ul.rows_idx).union(lr.cols_idx)))

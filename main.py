@@ -9,7 +9,7 @@ from qsplit.QUBO import QUBO
 import pandas as pd
 import json
 
-def runner(kind: str, qubo: QUBO, q_cut: int = 100):
+def runner(kind: str, qubo: QUBO, q_cut: int = 128):
     s = time.time()
     if kind == 'hybrid':
         sol = LeapHybridSampler().sample_qubo(qubo.qubo_dict, offset=qubo.offset).to_pandas_dataframe()
